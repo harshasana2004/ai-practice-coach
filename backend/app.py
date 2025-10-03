@@ -30,26 +30,86 @@ except Exception as e:
     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
 # --- LOCAL AI MODEL LOADING ---
-print("Loading Whisper speech-to-text model...")
-try:
-    whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
-    print("Whisper 'medium' model loaded successfully on GPU.")
-except Exception as e:
-    print(f"GPU model loading failed for Whisper: {e}. Falling back to CPU.")
-    whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
-    print("Whisper 'medium' model loaded on CPU.")
+# Determine if a CUDA-enabled GPU is available
+use_gpu = torch.cuda.is_available()
+device_type = "cuda" if use_gpu else "cpu"
+compute_type = "float16" if use_gpu else "int8"
 
-print("Loading local sentiment analysis model...")
+# 1. WHISPER MODEL (SPEECH-TO-TEXT)
+print(f"Loading Whisper speech-to-text model on {device_type.upper()}...")
 try:
+    whisper_model = WhisperModel("medium", device=device_type, compute_type=compute_type)
+    print(f"Whisper 'medium' model loaded successfully on {device_type.upper()}.")
+except Exception as e:
+    print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
+    whisper_model = None
+
+# 2. SENTIMENT ANALYSIS MODEL (FOR CONFIDENCE SCORE)
+print(f"Loading local sentiment analysis model on {device_type.upper()}...")
+try:
+    # Use device=0 for GPU, device=-1 for CPU
     sentiment_pipeline = pipeline(
         "sentiment-analysis",
         model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=0 if torch.cuda.is_available() else -1
+        device=0 if use_gpu else -1
     )
     print("Sentiment analysis model loaded successfully.")
 except Exception as e:
     print(f"CRITICAL ERROR: Could not load sentiment analysis model. {e}")
     sentiment_pipeline = None
+
+# import os
+# import numpy as np
+# import librosa
+# from faster_whisper import WhisperModel
+# from flask import Flask, request, jsonify
+# from flask_cors import CORS
+# from pydub import AudioSegment
+# import traceback
+# import json
+# from dotenv import load_dotenv
+# import torch
+# from transformers import pipeline
+# import cloudinary
+# import cloudinary.uploader
+#
+# # --- SETUP ---
+# load_dotenv()
+# app = Flask(__name__)
+# CORS(app)
+#
+# # --- CLOUDINARY CONFIGURATION ---
+# try:
+#     cloudinary.config(
+#         cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+#         api_key=os.getenv("CLOUDINARY_API_KEY"),
+#         api_secret=os.getenv("CLOUDINARY_API_SECRET")
+#     )
+#     print("Cloudinary configured successfully.")
+# except Exception as e:
+#     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
+#
+# # --- LOCAL AI MODEL LOADING ---
+# print("Loading Whisper speech-to-text model...")
+# try:
+#     whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
+#     print("Whisper 'medium' model loaded successfully on GPU.")
+# except Exception as e:
+#     print(f"GPU model loading failed for Whisper: {e}. Falling back to CPU.")
+#     whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+#     print("Whisper 'medium' model loaded on CPU.")
+#
+# print("Loading local sentiment analysis model...")
+# try:
+#     sentiment_pipeline = pipeline(
+#         "sentiment-analysis",
+#         model="distilbert-base-uncased-finetuned-sst-2-english",
+#         device=0 if torch.cuda.is_available() else -1
+#     )
+#     print("Sentiment analysis model loaded successfully.")
+# except Exception as e:
+#     print(f"CRITICAL ERROR: Could not load sentiment analysis model. {e}")
+#     sentiment_pipeline = None
 
 
 # --- HELPER FUNCTIONS ---
