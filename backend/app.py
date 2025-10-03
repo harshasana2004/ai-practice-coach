@@ -46,9 +46,9 @@ def load_models():
 
     print("--- First request received. Starting one-time model loading process. ---")
 
-    use_gpu = torch.cuda.is_available()
-    device_type = "cuda" if use_gpu else "cpu"
-    compute_type = "int8"  # Use a lighter compute type for CPU servers
+    # On free CPU servers, we must use a lighter compute type and model
+    device_type = "cpu"
+    compute_type = "int8"
 
     # Load Whisper Model
     print("Loading Whisper 'small' model...")
@@ -134,14 +134,11 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
         "confidenceScore": confidence_score, "feedback": feedback,
         "improvements": improvements, "mistakes": mistakes
     }
-# ... (function content is the same)
 
 
 # --- MAIN API ROUTE ---
 @app.route('/analyze', methods=['POST'])
 def analyze_speech():
-    # --- THIS IS THE KEY CHANGE ---
-    # Ensure models are loaded before proceeding.
     load_models()
 
     if 'audio' not in request.files or not whisper_model:
@@ -156,7 +153,6 @@ def analyze_speech():
     audio_url = None
 
     try:
-        # The rest of the function proceeds as before...
         print("Cleaning and standardizing audio...")
         sound = AudioSegment.from_file(filepath)
         sound = sound.set_channels(1)
@@ -178,8 +174,15 @@ def analyze_speech():
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
 
+        # --- THIS IS THE BLOCK THAT WAS MISSING ITS INDENTED CONTENT ---
         if not transcript or word_count < 1:
-        # ... (response for short recording is the same)
+            return jsonify({
+                'transcript': transcript or "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
+                'duration': duration_seconds,
+                'audioURL': audio_url, 'confidenceScore': 0, 'feedback': 'Recording was too short or silent.',
+                'improvements': ['Try speaking clearly for at least 3 seconds.'],
+                'mistakes': ['No significant speech was detected.']
+            })
 
         print("Calculating metrics...")
         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
@@ -209,9 +212,9 @@ def analyze_speech():
 
 
 if __name__ == '__main__':
-    # This part is for local development only. Render uses the Gunicorn command.
+    # This block is for LOCAL development only. Render uses the Gunicorn command.
     print("--- Starting server for local development. ---")
-    load_models()  # Load models immediately when running locally for faster testing.
+    load_models()  # Load models immediately when running locally.
     app.run(host='0.0.0.0', port=5000)
 
 
