@@ -1,0 +1,44 @@
+# Ignore Operating System files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE and editor folders
+.idea/
+.vscode/
+
+# --- FRONTEND (React + Vite) ---
+
+# Ignore the massive folder of downloaded packages
+frontend/node_modules/
+
+# Ignore the production build folder (Vercel creates this on its own)
+frontend/dist/
+
+# Ignore environment files that contain secrets
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Ignore log files
+frontend/npm-debug.log*
+frontend/yarn-error.log*
+
+
+# --- BACKEND (Python) ---
+
+# Ignore Python's compiled file cache
+backend/__pycache__/
+
+# Ignore Python virtual environment folders (very important!)
+backend/.venv/
+backend/venv/
+backend/env/
+
+# Ignore the environment file that contains ALL your secret API keys
+backend/.env
+
+# Ignore the Google / Firebase service account key file (CRITICAL!)
+backend/serviceAccountKey.json
+
+# Ignore the temporary folder for audio uploads
+backend/uploads/
