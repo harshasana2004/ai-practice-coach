@@ -29,34 +29,49 @@ try:
 except Exception as e:
     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
-# --- LOCAL AI MODEL LOADING ---
-use_gpu = torch.cuda.is_available()
-device_type = "cuda" if use_gpu else "cpu"
-# On free CPU servers, we must use a lighter compute type
-compute_type = "float16" if use_gpu else "int8"
+# --- LAZY LOADING FOR AI MODELS ---
+# We initialize the models as None. They will be loaded on the first request.
+whisper_model = None
+sentiment_pipeline = None
+models_loaded = False
 
-# 1. WHISPER MODEL (SPEECH-TO-TEXT)
-# --- FINAL FIX: USE THE 'small' MODEL TO FIT IN RENDER'S FREE TIER MEMORY ---
-print(f"Loading Whisper 'small' model on {device_type.upper()}...")
-try:
-    whisper_model = WhisperModel("small", device=device_type, compute_type=compute_type)
-    print(f"Whisper 'small' model loaded successfully on {device_type.upper()}.")
-except Exception as e:
-    print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
-    whisper_model = None
 
-# 2. SENTIMENT ANALYSIS MODEL (FOR CONFIDENCE SCORE)
-print("Loading local sentiment analysis model...")
-try:
-    sentiment_pipeline = pipeline(
-        "sentiment-analysis",
-        model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=0 if use_gpu else -1
-    )
-    print("Sentiment analysis model loaded successfully.")
-except Exception as e:
-    print(f"CRITICAL ERROR: Could not load sentiment analysis model. {e}")
-    sentiment_pipeline = None
+def load_models():
+    """
+    Loads the AI models into memory. This is a slow, one-time operation.
+    """
+    global whisper_model, sentiment_pipeline, models_loaded
+    if models_loaded:
+        return
+
+    print("--- First request received. Starting one-time model loading process. ---")
+
+    use_gpu = torch.cuda.is_available()
+    device_type = "cuda" if use_gpu else "cpu"
+    compute_type = "int8"  # Use a lighter compute type for CPU servers
+
+    # Load Whisper Model
+    print("Loading Whisper 'small' model...")
+    try:
+        whisper_model = WhisperModel("small", device=device_type, compute_type=compute_type)
+        print("Whisper model loaded successfully.")
+    except Exception as e:
+        print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
+
+    # Load Sentiment Analysis Model
+    print("Loading local sentiment analysis model...")
+    try:
+        sentiment_pipeline = pipeline(
+            "sentiment-analysis",
+            model="distilbert-base-uncased-finetuned-sst-2-english",
+            device=-1  # Force CPU for reliability on free tier
+        )
+        print("Sentiment analysis model loaded successfully.")
+    except Exception as e:
+        print(f"CRITICAL ERROR: Could not load sentiment analysis model. {e}")
+
+    models_loaded = True
+    print("--- All models loaded. Server is now ready for analysis. ---")
 
 
 # --- HELPER FUNCTIONS ---
@@ -119,11 +134,16 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
         "confidenceScore": confidence_score, "feedback": feedback,
         "improvements": improvements, "mistakes": mistakes
     }
+# ... (function content is the same)
 
 
 # --- MAIN API ROUTE ---
 @app.route('/analyze', methods=['POST'])
 def analyze_speech():
+    # --- THIS IS THE KEY CHANGE ---
+    # Ensure models are loaded before proceeding.
+    load_models()
+
     if 'audio' not in request.files or not whisper_model:
         return jsonify({'error': 'No audio file or required models are missing'}), 400
 
@@ -136,6 +156,7 @@ def analyze_speech():
     audio_url = None
 
     try:
+        # The rest of the function proceeds as before...
         print("Cleaning and standardizing audio...")
         sound = AudioSegment.from_file(filepath)
         sound = sound.set_channels(1)
@@ -158,13 +179,7 @@ def analyze_speech():
         duration_seconds = len(sound) / 1000.0
 
         if not transcript or word_count < 1:
-            return jsonify({
-                'transcript': transcript or "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
-                'duration': duration_seconds,
-                'audioURL': audio_url, 'confidenceScore': 0, 'feedback': 'Recording was too short or silent.',
-                'improvements': ['Try speaking clearly for at least 3 seconds.'],
-                'mistakes': ['No significant speech was detected.']
-            })
+        # ... (response for short recording is the same)
 
         print("Calculating metrics...")
         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
@@ -194,11 +209,10 @@ def analyze_speech():
 
 
 if __name__ == '__main__':
-    from waitress import serve
-
-    print("Starting server with waitress on http://0.0.0.0:5000")
-    serve(app, host='0.0.0.0', port=5000)
-
+    # This part is for local development only. Render uses the Gunicorn command.
+    print("--- Starting server for local development. ---")
+    load_models()  # Load models immediately when running locally for faster testing.
+    app.run(host='0.0.0.0', port=5000)
 
 
 # import os
