@@ -30,24 +30,24 @@ except Exception as e:
     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
 # --- LOCAL AI MODEL LOADING ---
-# Determine if a CUDA-enabled GPU is available
 use_gpu = torch.cuda.is_available()
 device_type = "cuda" if use_gpu else "cpu"
+# On free CPU servers, we must use a lighter compute type
 compute_type = "float16" if use_gpu else "int8"
 
 # 1. WHISPER MODEL (SPEECH-TO-TEXT)
-print(f"Loading Whisper speech-to-text model on {device_type.upper()}...")
+# --- FINAL FIX: USE THE 'small' MODEL TO FIT IN RENDER'S FREE TIER MEMORY ---
+print(f"Loading Whisper 'small' model on {device_type.upper()}...")
 try:
-    whisper_model = WhisperModel("medium", device=device_type, compute_type=compute_type)
-    print(f"Whisper 'medium' model loaded successfully on {device_type.upper()}.")
+    whisper_model = WhisperModel("small", device=device_type, compute_type=compute_type)
+    print(f"Whisper 'small' model loaded successfully on {device_type.upper()}.")
 except Exception as e:
     print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
     whisper_model = None
 
 # 2. SENTIMENT ANALYSIS MODEL (FOR CONFIDENCE SCORE)
-print(f"Loading local sentiment analysis model on {device_type.upper()}...")
+print("Loading local sentiment analysis model...")
 try:
-    # Use device=0 for GPU, device=-1 for CPU
     sentiment_pipeline = pipeline(
         "sentiment-analysis",
         model="distilbert-base-uncased-finetuned-sst-2-english",
@@ -57,59 +57,6 @@ try:
 except Exception as e:
     print(f"CRITICAL ERROR: Could not load sentiment analysis model. {e}")
     sentiment_pipeline = None
-
-# import os
-# import numpy as np
-# import librosa
-# from faster_whisper import WhisperModel
-# from flask import Flask, request, jsonify
-# from flask_cors import CORS
-# from pydub import AudioSegment
-# import traceback
-# import json
-# from dotenv import load_dotenv
-# import torch
-# from transformers import pipeline
-# import cloudinary
-# import cloudinary.uploader
-#
-# # --- SETUP ---
-# load_dotenv()
-# app = Flask(__name__)
-# CORS(app)
-#
-# # --- CLOUDINARY CONFIGURATION ---
-# try:
-#     cloudinary.config(
-#         cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-#         api_key=os.getenv("CLOUDINARY_API_KEY"),
-#         api_secret=os.getenv("CLOUDINARY_API_SECRET")
-#     )
-#     print("Cloudinary configured successfully.")
-# except Exception as e:
-#     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
-#
-# # --- LOCAL AI MODEL LOADING ---
-# print("Loading Whisper speech-to-text model...")
-# try:
-#     whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
-#     print("Whisper 'medium' model loaded successfully on GPU.")
-# except Exception as e:
-#     print(f"GPU model loading failed for Whisper: {e}. Falling back to CPU.")
-#     whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
-#     print("Whisper 'medium' model loaded on CPU.")
-#
-# print("Loading local sentiment analysis model...")
-# try:
-#     sentiment_pipeline = pipeline(
-#         "sentiment-analysis",
-#         model="distilbert-base-uncased-finetuned-sst-2-english",
-#         device=0 if torch.cuda.is_available() else -1
-#     )
-#     print("Sentiment analysis model loaded successfully.")
-# except Exception as e:
-#     print(f"CRITICAL ERROR: Could not load sentiment analysis model. {e}")
-#     sentiment_pipeline = None
 
 
 # --- HELPER FUNCTIONS ---
@@ -148,13 +95,13 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
         improvements.append("Try pausing briefly between key points.")
     elif wpm < 120 and word_count > 10:
         mistakes.append(f"Your pace was a bit slow at {wpm} WPM.")
-        improvements.append("Try speaking with more energy to keep your audience engaged.")
+        improvements.append("Try speaking with more energy.")
     else:
         feedback += " Your speaking pace was excellent."
 
     if pitch_modulation < 25 and duration_seconds > 4:
         mistakes.append("Your vocal delivery was a bit monotone.")
-        improvements.append("Practice varying your pitch to add more emphasis and emotion.")
+        improvements.append("Practice varying your pitch for emphasis.")
     else:
         feedback += " You used great vocal variety."
 
@@ -166,7 +113,7 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
         improvements.append("Try to pause silently instead of using filler words.")
 
     if not mistakes: mistakes.append("No major mistakes detected. Great job!")
-    if not improvements: improvements.append("Keep practicing to build even more consistency.")
+    if not improvements: improvements.append("Keep practicing to build consistency.")
 
     return {
         "confidenceScore": confidence_score, "feedback": feedback,
@@ -202,22 +149,15 @@ def analyze_speech():
         audio_url = upload_result.get('secure_url')
         print(f"Audio successfully uploaded to: {audio_url}")
 
-        print("Starting transcription with Voice Activity Detection...")
-        # --- FINAL FIX: ADDED VAD FILTER TO IGNORE SILENCE ---
-        segments, info = whisper_model.transcribe(
-            filepath,
-            beam_size=5,
-            language="en",
-            vad_filter=True,  # Enable Voice Activity Detection
-            vad_parameters=dict(min_silence_duration_ms=500)  # Helps keep phrases together
-        )
+        print("Starting transcription...")
+        segments, info = whisper_model.transcribe(filepath, beam_size=5, language="en")
         transcript = "".join(segment.text for segment in segments).strip()
         print(f"Transcription complete. Transcript: '{transcript}'")
 
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
 
-        if not transcript or word_count < 1:  # Changed to 1 to allow short phrases like "Thank you"
+        if not transcript or word_count < 1:
             return jsonify({
                 'transcript': transcript or "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
                 'duration': duration_seconds,
@@ -258,7 +198,6 @@ if __name__ == '__main__':
 
     print("Starting server with waitress on http://0.0.0.0:5000")
     serve(app, host='0.0.0.0', port=5000)
-
 
 
 
