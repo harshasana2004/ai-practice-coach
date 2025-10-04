@@ -36,29 +36,34 @@ models_loaded = False
 
 
 def load_models():
-    """Loads the AI models into memory on the first request."""
+    """
+    Loads the AI models into memory. This is a slow, one-time operation.
+    """
     global whisper_model, sentiment_pipeline, models_loaded
     if models_loaded:
         return
 
     print("--- First request received. Starting one-time model loading process. ---")
 
+    # On free CPU servers, we must use a lighter compute type and model
     device_type = "cpu"
     compute_type = "int8"
 
-    print("Loading Whisper 'small' model...")
+    # --- FINAL FIX: USE THE 'small' MODEL TO FIT IN HUGGING FACE'S FREE DISK SPACE ---
+    print(f"Loading Whisper 'small' model on {device_type.upper()}...")
     try:
         whisper_model = WhisperModel("small", device=device_type, compute_type=compute_type)
-        print("Whisper model loaded successfully.")
+        print("Whisper 'small' model loaded successfully.")
     except Exception as e:
         print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
 
+    # Load Sentiment Analysis Model
     print("Loading local sentiment analysis model...")
     try:
         sentiment_pipeline = pipeline(
             "sentiment-analysis",
             model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=-1  # Force CPU
+            device=-1  # Force CPU for reliability on free tier
         )
         print("Sentiment analysis model loaded successfully.")
     except Exception as e:
@@ -68,7 +73,7 @@ def load_models():
     print("--- All models loaded. Server is now ready for analysis. ---")
 
 
-# --- HELPER FUNCTIONS ---
+# --- HELPER FUNCTIONS (UNCHANGED) ---
 def analyze_pitch(filepath):
     """Analyzes the pitch of an audio file."""
     try:
@@ -130,7 +135,7 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
     }
 
 
-# --- MAIN API ROUTE ---
+# --- MAIN API ROUTE (UNCHANGED) ---
 @app.route('/analyze', methods=['POST'])
 def analyze_speech():
     load_models()
@@ -162,7 +167,6 @@ def analyze_speech():
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
 
-        # --- THIS IS THE CORRECTLY INDENTED BLOCK ---
         if not transcript or word_count < 1:
             return jsonify({
                 'transcript': transcript or "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
@@ -195,8 +199,6 @@ def analyze_speech():
 if __name__ == '__main__':
     # This block is for LOCAL development only.
     print("--- Starting server for local development. ---")
-    # Don't lazy load locally, load immediately for faster testing
-    # load_models()
     app.run(host='0.0.0.0', port=5000)
 
 
