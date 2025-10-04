@@ -11,7 +11,6 @@ from transformers import pipeline
 import cloudinary
 import cloudinary.uploader
 import gradio as gr
-import time
 
 # --- SETUP ---
 load_dotenv()
@@ -27,7 +26,7 @@ try:
 except Exception as e:
     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
-# --- AI MODEL LOADING (MOVED INSIDE THE FUNCTION FOR LAZY LOADING) ---
+# --- LAZY LOADING FOR AI MODELS ---
 whisper_model = None
 sentiment_pipeline = None
 models_loaded = False
@@ -114,13 +113,10 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
     }
 
 
-# --- MAIN ANALYSIS FUNCTION (REWRITTEN FOR GRADIO) ---
+# --- MAIN ANALYSIS FUNCTION ---
 def analyze_speech(audio_input):
-    """
-    This is the main function that Gradio will call.
-    It takes an audio file path as input and returns a JSON object.
-    """
-    load_models()  # Ensure models are loaded
+    """This is the main function that Gradio will call."""
+    load_models()
 
     if audio_input is None:
         return {"error": "No audio file received."}
@@ -131,22 +127,16 @@ def analyze_speech(audio_input):
     audio_url = None
 
     try:
-        print("Cleaning and standardizing audio...")
         sound = AudioSegment.from_file(filepath)
         sound = sound.set_channels(1)
         sound = sound.set_frame_rate(16000)
         sound.export(filepath, format="wav")
-        print("Audio cleaning complete.")
 
-        print("Uploading audio to Cloudinary...")
         upload_result = cloudinary.uploader.upload(filepath, resource_type="video")
         audio_url = upload_result.get('secure_url')
-        print(f"Audio successfully uploaded to: {audio_url}")
 
-        print("Starting transcription...")
         segments, info = whisper_model.transcribe(filepath, beam_size=5, language="en")
         transcript = "".join(segment.text for segment in segments).strip()
-        print(f"Transcription complete. Transcript: '{transcript}'")
 
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
@@ -160,14 +150,9 @@ def analyze_speech(audio_input):
                 'mistakes': ['No significant speech was detected.']
             }
 
-        print("Calculating metrics...")
         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
         pitch_modulation = analyze_pitch(filepath)
-        print("Metrics calculated.")
-
-        print("Getting local AI and rule-based feedback...")
         analysis = get_feedback(transcript, int(round(wpm)), pitch_modulation, word_count, duration_seconds)
-        print("Feedback received.")
 
         metrics = {
             'transcript': transcript, 'wpm': int(round(wpm)),
@@ -176,31 +161,24 @@ def analyze_speech(audio_input):
             'audioURL': audio_url, **analysis
         }
 
-        print("Analysis successful. Returning results.")
         return metrics
 
     except Exception as e:
         print(f"An unexpected error occurred in analyze_speech: {traceback.format_exc()}")
         return {'error': 'An internal server error occurred.', 'details': str(e)}
-    finally:
-        if filepath and os.path.exists(filepath):
-            os.remove(filepath)
 
 
 # --- GRADIO INTERFACE ---
-# We define a simple interface that takes an Audio file and returns JSON.
-# This will be automatically exposed as a web UI and a usable API endpoint.
 demo = gr.Interface(
     fn=analyze_speech,
     inputs=gr.Audio(type="filepath", label="Upload your speech"),
     outputs=gr.JSON(label="Analysis Report"),
     title="Smart Speak AI Practice Coach",
-    description="Upload an audio file to get instant feedback on your speaking skills. This is the backend processing engine."
+    description="This is the backend processing engine."
 )
 
 if __name__ == "__main__":
-    demo.launch()  # This starts the Gradio app
-
+    demo.launch()
 
 
 
