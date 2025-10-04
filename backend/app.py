@@ -2,8 +2,6 @@ import os
 import numpy as np
 import librosa
 from faster_whisper import WhisperModel
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 from pydub import AudioSegment
 import traceback
 import json
@@ -12,11 +10,11 @@ import torch
 from transformers import pipeline
 import cloudinary
 import cloudinary.uploader
+import gradio as gr
+import time
 
 # --- SETUP ---
 load_dotenv()
-app = Flask(__name__)
-CORS(app)
 
 # --- CLOUDINARY CONFIGURATION ---
 try:
@@ -29,16 +27,14 @@ try:
 except Exception as e:
     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
-# --- LAZY LOADING FOR AI MODELS ---
+# --- AI MODEL LOADING (MOVED INSIDE THE FUNCTION FOR LAZY LOADING) ---
 whisper_model = None
 sentiment_pipeline = None
 models_loaded = False
 
 
 def load_models():
-    """
-    Loads the AI models into memory. This is a slow, one-time operation.
-    """
+    """Loads the AI models into memory on the first request."""
     global whisper_model, sentiment_pipeline, models_loaded
     if models_loaded:
         return
@@ -60,7 +56,7 @@ def load_models():
         sentiment_pipeline = pipeline(
             "sentiment-analysis",
             model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=-1  # Force CPU for reliability on free tier
+            device=-1  # Force CPU
         )
         print("Sentiment analysis model loaded successfully.")
     except Exception as e:
@@ -76,8 +72,7 @@ def analyze_pitch(filepath):
     try:
         y, sr = librosa.load(filepath, sr=16000)
         pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
-        pitch_values = [pitches[magnitudes[:, t].argmax(), t] for t in range(pitches.shape[1]) if
-                        pitches[magnitudes[:, t].argmax(), t] > 0]
+        pitch_values = [p for p in pitches[magnitudes > 0] if p > 0]
         if len(pitch_values) > 1: return float(np.std(pitch_values))
         return 0.0
     except Exception as e:
@@ -102,26 +97,13 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
     improvements, mistakes = [], []
 
     if wpm > 170:
-        mistakes.append(f"Your pace was quite fast at {wpm} WPM.")
+        mistakes.append("Your pace was quite fast. This can be hard for listeners to follow.")
         improvements.append("Try pausing briefly between key points.")
     elif wpm < 120 and word_count > 10:
-        mistakes.append(f"Your pace was a bit slow at {wpm} WPM.")
-        improvements.append("Try speaking with more energy.")
+        mistakes.append("Your pace was a bit slow.")
+        improvements.append("Try speaking with more energy to keep your audience engaged.")
     else:
         feedback += " Your speaking pace was excellent."
-
-    if pitch_modulation < 25 and duration_seconds > 4:
-        mistakes.append("Your vocal delivery was a bit monotone.")
-        improvements.append("Practice varying your pitch for emphasis.")
-    else:
-        feedback += " You used great vocal variety."
-
-    filler_words = ['uh', 'um', 'like', 'you know', 'so', 'actually', 'basically']
-    transcript_lower = transcript.lower()
-    found_fillers = [word for word in filler_words if f" {word} " in transcript_lower]
-    if found_fillers:
-        mistakes.append(f"Some filler words like '{', '.join(found_fillers)}' were detected.")
-        improvements.append("Try to pause silently instead of using filler words.")
 
     if not mistakes: mistakes.append("No major mistakes detected. Great job!")
     if not improvements: improvements.append("Keep practicing to build consistency.")
@@ -132,58 +114,60 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
     }
 
 
-# --- API ROUTES ---
+# --- MAIN ANALYSIS FUNCTION (REWRITTEN FOR GRADIO) ---
+def analyze_speech(audio_input):
+    """
+    This is the main function that Gradio will call.
+    It takes an audio file path as input and returns a JSON object.
+    """
+    load_models()  # Ensure models are loaded
 
-@app.route('/', methods=['GET'])
-def health_check():
-    """A simple route to confirm the server is running."""
-    print("Health check endpoint was hit.")
-    return jsonify({"status": "ok", "message": "Smart Speak backend is running!"})
+    if audio_input is None:
+        return {"error": "No audio file received."}
 
-
-@app.route('/analyze', methods=['POST'])
-def analyze_speech():
-    load_models()
-
-    if 'audio' not in request.files or not whisper_model:
-        return jsonify({'error': 'No audio file or required models are missing'}), 400
-
-    audio_file = request.files['audio']
-    uploads_dir = 'uploads'
-    if not os.path.exists(uploads_dir): os.makedirs(uploads_dir)
-    filepath = os.path.join(uploads_dir, "temp_recording.wav")
-    audio_file.save(filepath)
+    filepath = audio_input
+    print(f"Received audio file for analysis: {filepath}")
 
     audio_url = None
 
     try:
+        print("Cleaning and standardizing audio...")
         sound = AudioSegment.from_file(filepath)
         sound = sound.set_channels(1)
         sound = sound.set_frame_rate(16000)
         sound.export(filepath, format="wav")
+        print("Audio cleaning complete.")
 
-        upload_result = cloudinary.uploader.upload(filepath, resource_type="video",
-                                                   public_id=f"smart-speak/{os.path.basename(filepath).split('.')[0]}")
+        print("Uploading audio to Cloudinary...")
+        upload_result = cloudinary.uploader.upload(filepath, resource_type="video")
         audio_url = upload_result.get('secure_url')
+        print(f"Audio successfully uploaded to: {audio_url}")
 
+        print("Starting transcription...")
         segments, info = whisper_model.transcribe(filepath, beam_size=5, language="en")
         transcript = "".join(segment.text for segment in segments).strip()
+        print(f"Transcription complete. Transcript: '{transcript}'")
 
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
 
         if not transcript or word_count < 1:
-            return jsonify({
+            return {
                 'transcript': transcript or "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
                 'duration': duration_seconds,
                 'audioURL': audio_url, 'confidenceScore': 0, 'feedback': 'Recording was too short or silent.',
                 'improvements': ['Try speaking clearly for at least 3 seconds.'],
                 'mistakes': ['No significant speech was detected.']
-            })
+            }
 
+        print("Calculating metrics...")
         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
         pitch_modulation = analyze_pitch(filepath)
+        print("Metrics calculated.")
+
+        print("Getting local AI and rule-based feedback...")
         analysis = get_feedback(transcript, int(round(wpm)), pitch_modulation, word_count, duration_seconds)
+        print("Feedback received.")
 
         metrics = {
             'transcript': transcript, 'wpm': int(round(wpm)),
@@ -192,19 +176,32 @@ def analyze_speech():
             'audioURL': audio_url, **analysis
         }
 
-        return jsonify(metrics)
+        print("Analysis successful. Returning results.")
+        return metrics
 
     except Exception as e:
-        return jsonify({'error': 'An internal server error occurred.', 'details': str(e)}), 500
+        print(f"An unexpected error occurred in analyze_speech: {traceback.format_exc()}")
+        return {'error': 'An internal server error occurred.', 'details': str(e)}
     finally:
-        if os.path.exists(filepath):
+        if filepath and os.path.exists(filepath):
             os.remove(filepath)
 
 
-if __name__ == '__main__':
-    # This block is for LOCAL development only.
-    print("--- Starting server for local development. ---")
-    app.run(host='0.0.0.0', port=5000)
+# --- GRADIO INTERFACE ---
+# We define a simple interface that takes an Audio file and returns JSON.
+# This will be automatically exposed as a web UI and a usable API endpoint.
+demo = gr.Interface(
+    fn=analyze_speech,
+    inputs=gr.Audio(type="filepath", label="Upload your speech"),
+    outputs=gr.JSON(label="Analysis Report"),
+    title="Smart Speak AI Practice Coach",
+    description="Upload an audio file to get instant feedback on your speaking skills. This is the backend processing engine."
+)
+
+if __name__ == "__main__":
+    demo.launch()  # This starts the Gradio app
+
+
 
 
 
