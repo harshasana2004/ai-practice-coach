@@ -30,27 +30,22 @@ except Exception as e:
     print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
 # --- LAZY LOADING FOR AI MODELS ---
-# We initialize the models as None. They will be loaded on the first request.
 whisper_model = None
 sentiment_pipeline = None
 models_loaded = False
 
 
 def load_models():
-    """
-    Loads the AI models into memory. This is a slow, one-time operation.
-    """
+    """Loads the AI models into memory on the first request."""
     global whisper_model, sentiment_pipeline, models_loaded
     if models_loaded:
         return
 
     print("--- First request received. Starting one-time model loading process. ---")
 
-    # On free CPU servers, we must use a lighter compute type and model
     device_type = "cpu"
     compute_type = "int8"
 
-    # Load Whisper Model
     print("Loading Whisper 'small' model...")
     try:
         whisper_model = WhisperModel("small", device=device_type, compute_type=compute_type)
@@ -58,13 +53,12 @@ def load_models():
     except Exception as e:
         print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
 
-    # Load Sentiment Analysis Model
     print("Loading local sentiment analysis model...")
     try:
         sentiment_pipeline = pipeline(
             "sentiment-analysis",
             model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=-1  # Force CPU for reliability on free tier
+            device=-1  # Force CPU
         )
         print("Sentiment analysis model loaded successfully.")
     except Exception as e:
@@ -153,28 +147,22 @@ def analyze_speech():
     audio_url = None
 
     try:
-        print("Cleaning and standardizing audio...")
         sound = AudioSegment.from_file(filepath)
         sound = sound.set_channels(1)
         sound = sound.set_frame_rate(16000)
         sound.export(filepath, format="wav")
-        print("Audio cleaning complete.")
 
-        print("Uploading audio to Cloudinary...")
         upload_result = cloudinary.uploader.upload(filepath, resource_type="video",
                                                    public_id=f"smart-speak/{os.path.basename(filepath).split('.')[0]}")
         audio_url = upload_result.get('secure_url')
-        print(f"Audio successfully uploaded to: {audio_url}")
 
-        print("Starting transcription...")
         segments, info = whisper_model.transcribe(filepath, beam_size=5, language="en")
         transcript = "".join(segment.text for segment in segments).strip()
-        print(f"Transcription complete. Transcript: '{transcript}'")
 
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
 
-        # --- THIS IS THE BLOCK THAT WAS MISSING ITS INDENTED CONTENT ---
+        # --- THIS IS THE CORRECTLY INDENTED BLOCK ---
         if not transcript or word_count < 1:
             return jsonify({
                 'transcript': transcript or "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
@@ -184,14 +172,9 @@ def analyze_speech():
                 'mistakes': ['No significant speech was detected.']
             })
 
-        print("Calculating metrics...")
         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
         pitch_modulation = analyze_pitch(filepath)
-        print("Metrics calculated.")
-
-        print("Getting local AI and rule-based feedback...")
         analysis = get_feedback(transcript, int(round(wpm)), pitch_modulation, word_count, duration_seconds)
-        print("Feedback received.")
 
         metrics = {
             'transcript': transcript, 'wpm': int(round(wpm)),
@@ -200,11 +183,9 @@ def analyze_speech():
             'audioURL': audio_url, **analysis
         }
 
-        print("Analysis successful. Returning results.")
         return jsonify(metrics)
 
     except Exception as e:
-        print(f"An unexpected error occurred in analyze_speech: {traceback.format_exc()}")
         return jsonify({'error': 'An internal server error occurred.', 'details': str(e)}), 500
     finally:
         if os.path.exists(filepath):
@@ -212,9 +193,10 @@ def analyze_speech():
 
 
 if __name__ == '__main__':
-    # This block is for LOCAL development only. Render uses the Gunicorn command.
+    # This block is for LOCAL development only.
     print("--- Starting server for local development. ---")
-    load_models()  # Load models immediately when running locally.
+    # Don't lazy load locally, load immediately for faster testing
+    # load_models()
     app.run(host='0.0.0.0', port=5000)
 
 
