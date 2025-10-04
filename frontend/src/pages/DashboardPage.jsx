@@ -11,24 +11,30 @@ const DashboardPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { user } = useAuth();
 
-  // This effect fetches ALL sessions for the user to calculate stats correctly
+  // This effect listens for any changes in the Firestore database
+  // and updates our component's state, making it the "Single Source of Truth".
   useEffect(() => {
-    if (!user) return;
+    if (!user) return; // Don't run if the user is not logged in
+
     const q = query(
       collection(db, 'sessions'),
       where('userId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
+
+    // onSnapshot creates a real-time listener
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const userSessions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSessions(userSessions);
+    }, (error) => {
+      console.error("Error listening to Firestore:", error);
     });
+
+    // Clean up the listener when the component unmounts
     return () => unsubscribe();
   }, [user]);
 
-  // --- THIS IS THE CORRECTED FUNCTION ---
-  // Its only job is to save the new session to the database.
-  // It no longer touches the local 'sessions' state directly.
+  // This function's only job is to save the new session to the database.
   const handleAnalysisComplete = async (newSessionData) => {
     if (!user) return;
 
