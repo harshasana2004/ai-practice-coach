@@ -7,9 +7,13 @@ const Header = () => {
   const navigate = useNavigate();
   const userInitial = user?.email ? user.email.charAt(0).toUpperCase() : '?';
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error("Failed to log out:", error);
+    }
   };
 
   return (
@@ -26,16 +30,11 @@ const Header = () => {
           <NavLink to="/history" className={({ isActive }) => (isActive ? "active" : "")}>History</NavLink>
         </nav>
         <div className="header-profile">
-          <div className="profile-initial">
-            {userInitial}
-          </div>
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
+          <div className="profile-initial">{userInitial}</div>
+          <button onClick={handleLogout} className="logout-button">Logout</button>
         </div>
       </div>
     </header>
   );
 };
-
 export default Header;

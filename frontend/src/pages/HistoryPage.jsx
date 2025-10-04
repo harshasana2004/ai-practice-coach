@@ -12,25 +12,20 @@ const HistoryPage = () => {
 
   useEffect(() => {
     if (!user) return;
-
     const q = query(
       collection(db, 'sessions'),
       where('userId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
-
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const userSessions = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        // Convert Firestore Timestamp to a readable JS Date object
         createdAt: doc.data().createdAt.toDate(),
       }));
       setSessions(userSessions);
       setLoading(false);
     });
-
-    // Clean up the real-time listener when the component unmounts
     return () => unsubscribe();
   }, [user]);
 
@@ -39,8 +34,10 @@ const HistoryPage = () => {
       <Header />
       <main className="main-content">
         <div className="content-wrapper" style={{ maxWidth: '56rem' }}>
-          <div className="history-page">
-            <h1 className="title">Session History</h1>
+          <div className="page-container">
+            <div className="page-header">
+                <h1 className="title">Session History</h1>
+            </div>
             <div className="card">
               <div className="history-list">
                 {loading && <p>Loading history...</p>}
@@ -60,7 +57,7 @@ const HistoryPage = () => {
                           {session.createdAt.toLocaleDateString()}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.875rem', color: '#4b5563' }}>
+                      <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.875rem' }}>
                         <span>{session.wpm} WPM</span>
                         <span>{session.duration.toFixed(1)}s Duration</span>
                         <span style={{ fontWeight: '600' }}>{session.confidenceScore}% Confidence</span>
@@ -76,5 +73,4 @@ const HistoryPage = () => {
     </div>
   );
 };
-
 export default HistoryPage;

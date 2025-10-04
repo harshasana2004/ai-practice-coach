@@ -11,5 +11,4 @@ const StatCard = ({ title, value, icon }) => {
     </div>
   );
 };
-
 export default StatCard;

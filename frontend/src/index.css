@@ -1,17 +1,9 @@
-/* Global styles and resets */
 body {
   margin: 0;
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f9fafb; /* bg-gray-50 */
+  background-color: #f9fafb;
 }
-
-a {
-  text-decoration: none;
-  color: inherit;
-}
-
-* {
-  box-sizing: border-box;
-}
+a { text-decoration: none; color: inherit; }
+* { box-sizing: border-box; }

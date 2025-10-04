@@ -21,25 +21,13 @@ export const AuthProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
-  const signup = (email, password) => {
-    return createUserWithEmailAndPassword(auth, email, password);
-  };
-
-  const login = (email, password) => {
-    return signInWithEmailAndPassword(auth, email, password);
-  };
-
-  const logout = () => {
-    return signOut(auth);
-  };
+  const signup = (email, password) => createUserWithEmailAndPassword(auth, email, password);
+  const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+  const logout = () => signOut(auth);
 
   const value = { user, isLoading, signup, login, logout };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {!isLoading && children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{!isLoading && children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);

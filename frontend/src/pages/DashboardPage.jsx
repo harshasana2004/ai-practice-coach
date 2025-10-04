@@ -11,41 +11,30 @@ const DashboardPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { user } = useAuth();
 
-  // This effect listens for any changes in the Firestore database
-  // and updates our component's state, making it the "Single Source of Truth".
   useEffect(() => {
-    if (!user) return; // Don't run if the user is not logged in
-
+    if (!user) return;
     const q = query(
       collection(db, 'sessions'),
       where('userId', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
-
-    // onSnapshot creates a real-time listener
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const userSessions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSessions(userSessions);
     }, (error) => {
       console.error("Error listening to Firestore:", error);
     });
-
-    // Clean up the listener when the component unmounts
     return () => unsubscribe();
   }, [user]);
 
-  // This function's only job is to save the new session to the database.
   const handleAnalysisComplete = async (newSessionData) => {
     if (!user) return;
-
     const sessionToSave = {
       ...newSessionData,
       userId: user.uid,
       createdAt: new Date(),
     };
-
     try {
-      // The onSnapshot listener will automatically detect this change and update the UI.
       await addDoc(collection(db, 'sessions'), sessionToSave);
       console.log("New session successfully saved to Firestore.");
     } catch (e) {
@@ -54,10 +43,10 @@ const DashboardPage = () => {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen">
+    <div className="app-container">
       <Header />
-      <main className="pt-16">
-        <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="main-content">
+        <div className="content-wrapper">
           <Dashboard
             sessions={sessions}
             onStartPractice={() => setIsModalOpen(true)}
@@ -73,5 +62,4 @@ const DashboardPage = () => {
     </div>
   );
 };
-
 export default DashboardPage;
