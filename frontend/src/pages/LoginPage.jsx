@@ -23,17 +23,17 @@ const LoginPage = () => {
   return (
     <div className="auth-page">
       <div className="auth-form-container">
-        <h2 style={{ fontSize: '1.875rem', fontWeight: '700', textAlign: 'center', color: '#111827' }}>
+        <h2 className="title" style={{ textAlign: 'center' }}>
           Login to Smart Speak
         </h2>
-        <form onSubmit={handleSubmit} style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <form onSubmit={handleSubmit} className="auth-form">
           <input
             type="email"
             placeholder="Email Address"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ width: '100%', padding: '0.75rem 1rem', border: '1px solid #d1d5db', borderRadius: '0.5rem' }}
+            className="auth-input"
           />
           <input
             type="password"
@@ -41,7 +41,7 @@ const LoginPage = () => {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: '100%', padding: '0.75rem 1rem', border: '1px solid #d1d5db', borderRadius: '0.5rem' }}
+            className="auth-input"
           />
           {error && <p style={{ color: '#ef4444', fontSize: '0.875rem', textAlign: 'center' }}>{error}</p>}
           <button type="submit" className="practice-button">

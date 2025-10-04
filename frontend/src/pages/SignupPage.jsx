@@ -14,9 +14,8 @@ const SignupPage = () => {
     setError('');
     try {
       await signup(email, password);
-      navigate('/'); // Redirect to dashboard on successful signup
+      navigate('/');
     } catch (err) {
-      // Provide more specific feedback based on the error code
       switch (err.code) {
         case 'auth/email-already-in-use':
           setError('This email address is already in use.');
@@ -37,17 +36,17 @@ const SignupPage = () => {
   return (
     <div className="auth-page">
       <div className="auth-form-container">
-        <h2 style={{ fontSize: '1.875rem', fontWeight: '700', textAlign: 'center', color: '#111827' }}>
+        <h2 className="title" style={{ textAlign: 'center' }}>
           Create an Account
         </h2>
-        <form onSubmit={handleSubmit} style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <form onSubmit={handleSubmit} className="auth-form">
           <input
             type="email"
             placeholder="Email Address"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ width: '100%', padding: '0.75rem 1rem', border: '1px solid #d1d5db', borderRadius: '0.5rem' }}
+            className="auth-input"
           />
           <input
             type="password"
@@ -55,7 +54,7 @@ const SignupPage = () => {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: '100%', padding: '0.75rem 1rem', border: '1px solid #d1d5db', borderRadius: '0.5rem' }}
+            className="auth-input"
           />
           {error && <p style={{ color: '#ef4444', fontSize: '0.875rem', textAlign: 'center' }}>{error}</p>}
           <button type="submit" className="practice-button">
