@@ -45,19 +45,16 @@ def load_models():
 
     print("--- First request received. Starting one-time model loading process. ---")
 
-    # On free CPU servers, we must use a lighter compute type and model
     device_type = "cpu"
     compute_type = "int8"
 
-    # --- FINAL FIX: USE THE 'small' MODEL TO FIT IN HUGGING FACE'S FREE DISK SPACE ---
-    print(f"Loading Whisper 'small' model on {device_type.upper()}...")
+    print("Loading Whisper 'small' model...")
     try:
         whisper_model = WhisperModel("small", device=device_type, compute_type=compute_type)
-        print("Whisper 'small' model loaded successfully.")
+        print("Whisper model loaded successfully.")
     except Exception as e:
         print(f"CRITICAL ERROR: Could not load Whisper model. {e}")
 
-    # Load Sentiment Analysis Model
     print("Loading local sentiment analysis model...")
     try:
         sentiment_pipeline = pipeline(
@@ -73,7 +70,7 @@ def load_models():
     print("--- All models loaded. Server is now ready for analysis. ---")
 
 
-# --- HELPER FUNCTIONS (UNCHANGED) ---
+# --- HELPER FUNCTIONS ---
 def analyze_pitch(filepath):
     """Analyzes the pitch of an audio file."""
     try:
@@ -135,7 +132,15 @@ def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds
     }
 
 
-# --- MAIN API ROUTE (UNCHANGED) ---
+# --- API ROUTES ---
+
+@app.route('/', methods=['GET'])
+def health_check():
+    """A simple route to confirm the server is running."""
+    print("Health check endpoint was hit.")
+    return jsonify({"status": "ok", "message": "Smart Speak backend is running!"})
+
+
 @app.route('/analyze', methods=['POST'])
 def analyze_speech():
     load_models()
@@ -200,6 +205,7 @@ if __name__ == '__main__':
     # This block is for LOCAL development only.
     print("--- Starting server for local development. ---")
     app.run(host='0.0.0.0', port=5000)
+
 
 
 # import os
