@@ -4,6 +4,7 @@ import librosa
 from faster_whisper import WhisperModel
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from pydub import AudioSegment
 import traceback
 import json
@@ -14,11 +15,13 @@ import cloudinary
 import cloudinary.uploader
 import time
 import google.generativeai as genai
+from facial_metrics import FacialMetricsAnalyzer
 
 # --- SETUP ---
 load_dotenv()
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # --- SERVICE CONFIGURATION ---
 try:
@@ -223,8 +226,234 @@ def analyze_speech():
             os.remove(filepath)
 
 
+# --- FACIAL ANALYSIS ROUTES & WEBSOCKET HANDLERS ---
+@app.route('/analyze-with-facial-metrics', methods=['POST'])
+def analyze_with_facial_metrics():
+    """Enhanced analyze endpoint that accepts facial metrics summary"""
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio file found'}), 400
+    
+    user_id = request.form.get('uid')
+    audio_file = request.files['audio']
+    facial_metrics_json = request.form.get('facialMetrics', '{}')
+    
+    uploads_dir = 'uploads'
+    if not os.path.exists(uploads_dir):
+        os.makedirs(uploads_dir)
+    filepath = os.path.join(uploads_dir, f"temp_{int(time.time())}.wav")
+    audio_file.save(filepath)
+    
+    audio_url = None
+    try:
+        facial_metrics_summary = json.loads(facial_metrics_json) if facial_metrics_json else {}
+        
+        sound = AudioSegment.from_file(filepath)
+        sound = sound.set_channels(1).set_frame_rate(16000)
+        sound.export(filepath, format="wav")
+        
+        public_id = f"smart-speak/{user_id}/{int(time.time())}" if user_id else f"smart-speak/guest/{int(time.time())}"
+        upload_result = cloudinary.uploader.upload(filepath, resource_type="video", public_id=public_id)
+        audio_url = upload_result.get('secure_url')
+        
+        segments, info = whisper_model.transcribe(filepath, beam_size=5, language="en", vad_filter=True)
+        transcript = "".join(segment.text for segment in segments).strip()
+        
+        word_count = len(transcript.split())
+        duration_seconds = len(sound) / 1000.0
+        
+        if not transcript or word_count < 1:
+            return jsonify({
+                'transcript': "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0,
+                'duration': duration_seconds, 'audioURL': audio_url,
+                'facialMetrics': facial_metrics_summary,
+                'analysis': {
+                    "overallFeedback": 'Recording was too short or silent.',
+                    "confidenceScore": 0, "pacingAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+                    "vocalVarietyAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+                    "grammaticalErrors": [], "clarityConciseness": [],
+                    "fillerWordAnalysis": [], "pauseAnalysis": [], "keyImprovements": []
+                }
+            })
+        
+        wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
+        pitch_modulation = analyze_pitch(filepath)
+        
+        # Enhanced feedback with facial metrics
+        ai_analysis = get_ai_feedback_with_facial(transcript, int(round(wpm)), pitch_modulation, facial_metrics_summary)
+        
+        metrics = {
+            'transcript': transcript, 'wpm': int(round(wpm)),
+            'pitchModulation': float(round(pitch_modulation, 2)),
+            'duration': float(round(duration_seconds, 2)),
+            'audioURL': audio_url,
+            'facialMetrics': facial_metrics_summary,
+            'analysis': ai_analysis
+        }
+        
+        return jsonify(metrics)
+    except Exception as e:
+        print(f"An unexpected error occurred: {traceback.format_exc()}")
+        return jsonify({'error': 'An internal server error occurred.', 'details': str(e)}), 500
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+def get_ai_feedback_with_facial(transcript, wpm, pitch_modulation, facial_metrics):
+    """Enhanced feedback that includes facial metrics analysis"""
+    
+    required_keys = {
+        "overallFeedback": "Analysis complete.", "confidenceScore": 50,
+        "pacingAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+        "vocalVarietyAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+        "facialAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+        "grammaticalErrors": [], "clarityConciseness": [],
+        "fillerWordAnalysis": [], "pauseAnalysis": [], "keyImprovements": []
+    }
+    
+    if not gemini_model:
+        return {**required_keys, "overallFeedback": "AI analysis service (Gemini) is unavailable."}
+    
+    facial_context = ""
+    if facial_metrics:
+        avg_engagement = facial_metrics.get('average_engagement_score', 0)
+        avg_confidence = facial_metrics.get('average_confidence_score', 0)
+        emotion_breakdown = facial_metrics.get('emotion_breakdown', {})
+        dominant_emotion = facial_metrics.get('dominant_emotion', 'neutral')
+        
+        facial_context = f"""
+        - Average Engagement Score: {avg_engagement}/100 (How attentive and present the speaker was)
+        - Average Confidence Score: {avg_confidence}/100 (Based on facial expressions)
+        - Dominant Emotion: {dominant_emotion}
+        - Emotion Breakdown: {json.dumps(emotion_breakdown)}
+        """
+    
+    prompt = f"""
+    Act as an expert, highly detailed, and encouraging speech coach named "Smart Speak".
+    Your task is to analyze the following speech and facial data from a user. Provide specific, actionable feedback.
+
+    Input Data:
+    - Transcript: "{transcript}"
+    - Speaking Pace: {wpm} Words Per Minute (Ideal is ~130-160 WPM)
+    - Pitch Modulation (Std Dev): {pitch_modulation:.2f} (Good is often > 30)
+    {facial_context}
+
+    Your analysis MUST be returned as a single, valid JSON object with NO text before or after it.
+    The JSON object must have the following exact keys:
+
+    {{
+      "overallFeedback": "<string: A concise (2-3 sentences) encouraging summary>",
+      "confidenceScore": <integer: 0-100>,
+      "pacingAnalysis": {{ "assessment": "<string>", "recommendation": "<string>" }},
+      "vocalVarietyAnalysis": {{ "assessment": "<string>", "recommendation": "<string>" }},
+      "facialAnalysis": {{ "assessment": "<string>", "recommendation": "<string>" }},
+      "fillerWordAnalysis": [ {{ "word": "<string>", "count": <integer> }} ],
+      "pauseAnalysis": [ {{ "type": "<string>", "context": "<string>" }} ],
+      "grammaticalErrors": [ {{ "error": "<string>", "example": "<string>", "correction": "<string>" }} ],
+      "clarityConciseness": [ {{ "issue": "<string>", "example": "<string>", "suggestion": "<string>" }} ],
+      "keyImprovements": [ {{ "area": "<string>", "action": "<string>" }} ]
+    }}
+    """
+    
+    try:
+        response = gemini_model.generate_content(prompt)
+        
+        if not response.candidates:
+            return {**required_keys, "overallFeedback": "AI analysis blocked due to safety filters."}
+        
+        if response.candidates[0].finish_reason != 1:
+            return {**required_keys, "overallFeedback": "AI analysis stopped unexpectedly."}
+        
+        json_response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        
+        if not json_response_text:
+            return {**required_keys, "overallFeedback": "AI analysis returned an empty response."}
+        
+        parsed_json = json.loads(json_response_text)
+        
+        for key, default_value in required_keys.items():
+            if key not in parsed_json:
+                parsed_json[key] = default_value
+        return parsed_json
+    
+    except Exception as e:
+        print(f"CRITICAL: Failed to get facial feedback from Gemini. Error: {e}")
+        return {**required_keys, "overallFeedback": f"Error during AI analysis: {str(e)}"}
+
+
+# --- WEBSOCKET EVENTS ---
+@socketio.on('connect')
+def handle_connect():
+    """Client connects to WebSocket"""
+    print(f"Client connected: {request.sid}")
+    emit('response', {'data': 'Connected to facial analysis server'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Client disconnects from WebSocket"""
+    print(f"Client disconnected: {request.sid}")
+
+
+@socketio.on('start_facial_analysis')
+def handle_start_analysis(data):
+    """Initialize facial analysis for a session"""
+    session_id = data.get('sessionId')
+    analyzer = FacialMetricsAnalyzer()
+    analyzer.reset_session()
+    print(f"Started facial analysis for session: {session_id}")
+    emit('analysis_started', {'sessionId': session_id, 'status': 'ready'})
+
+
+@socketio.on('process_frame')
+def handle_process_frame(data):
+    """Process a video frame for facial metrics"""
+    try:
+        frame_base64 = data.get('frame')
+        session_id = data.get('sessionId')
+        
+        if not frame_base64:
+            emit('frame_error', {'error': 'No frame provided'})
+            return
+        
+        analyzer = FacialMetricsAnalyzer()
+        metrics = analyzer.analyze_frame(frame_base64)
+        
+        if metrics:
+            emit('frame_metrics', {
+                'sessionId': session_id,
+                'metrics': metrics,
+                'timestamp': metrics['timestamp']
+            })
+        else:
+            emit('frame_skipped', {'sessionId': session_id, 'reason': 'No face detected'})
+    
+    except Exception as e:
+        print(f"Error processing frame: {e}")
+        emit('frame_error', {'error': str(e)})
+
+
+@socketio.on('end_facial_analysis')
+def handle_end_analysis(data):
+    """Finalize facial analysis and get session summary"""
+    try:
+        session_id = data.get('sessionId')
+        analyzer = FacialMetricsAnalyzer()
+        summary = analyzer.get_session_summary()
+        
+        print(f"Ended facial analysis for session: {session_id}")
+        emit('analysis_complete', {
+            'sessionId': session_id,
+            'summary': summary
+        })
+    
+    except Exception as e:
+        print(f"Error ending analysis: {e}")
+        emit('analysis_error', {'error': str(e)})
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
 
 
 

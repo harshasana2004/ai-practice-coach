@@ -116,9 +116,56 @@
     .chart-title { font-size: 1rem; font-weight: 600; color: var(--text-secondary); text-align: center; margin: 0 0 1rem 0; }
 
     /* === Modal Specific === */
-    .modal-overlay { position: fixed; inset: 0; background-color: rgba(17, 24, 39, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
-    .modal-content { background-color: var(--bg-white); border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); padding: 2rem; width: 100%; max-width: 36rem; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; }
+    .modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  background: rgba(0,0,0,0.5);
+
+  overflow-y: auto;   /* 🔥 allows scroll if modal is tall */
+  padding: 20px;
+}
+.instant-report {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Grid for top stats */
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.instant-report-section {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 8px;
+}
+    .modal-content {
+  width: 90%;
+  max-width: 1100px;   /* 🔥 makes it wide */
+  max-height: 90vh;    /* 🔥 prevents overflow outside screen */
+  overflow-y: auto;    /* 🔥 enables vertical scroll */
+  background: #fff;
+  border-radius: 10px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; }
     .modal-close-button { background: none; border: none; font-size: 2.5rem; line-height: 1; cursor: pointer; color: #9ca3af; padding: 0; }
     .modal-close-button:hover { color: #6b7280; }
     .modal-status { text-align: center; padding-top: 1rem; min-height: 80px; display: flex; flex-direction: column; justify-content: center; }

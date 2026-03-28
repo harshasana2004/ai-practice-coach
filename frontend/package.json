@@ -14,7 +14,10 @@
     "react-datepicker": "^4.20.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.16.0",
-    "recharts": "^2.8.0"
+    "recharts": "^2.8.0",
+    "@tensorflow/tfjs": "^4.11.0",
+    "@tensorflow-models/blazeface": "^0.0.7",
+    "socket.io-client": "^4.7.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.1.0",

@@ -1,6 +1,9 @@
 # Core Web Framework
 Flask
 Flask-Cors
+Flask-SocketIO
+python-socketio
+python-engineio
 python-dotenv
 
 # AI & Machine Learning (for GPU & External AI)
@@ -9,11 +12,16 @@ torch
 transformers
 tf-keras
 google-generativeai # Added Gemini library
+deepface # For facial emotion/engagement analysis
+mediapipe # For face detection on backend
 
 # Audio & Data Processing
 librosa
 numpy
 pydub
+
+# Image Processing
+Pillow
 
 # API & Cloud Services
 cloudinary
