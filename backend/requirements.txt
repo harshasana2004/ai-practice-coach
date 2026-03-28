@@ -3,11 +3,12 @@ Flask
 Flask-Cors
 python-dotenv
 
-# AI & Machine Learning (for GPU)
+# AI & Machine Learning (for GPU & External AI)
 faster-whisper
 torch
 transformers
 tf-keras
+google-generativeai # Added Gemini library
 
 # Audio & Data Processing
 librosa

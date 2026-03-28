@@ -40,29 +40,13 @@ const SignupPage = () => {
           Create an Account
         </h2>
         <form onSubmit={handleSubmit} className="auth-form">
-          <input
-            type="email"
-            placeholder="Email Address"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="auth-input"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="auth-input"
-          />
-          {error && <p style={{ color: '#ef4444', fontSize: '0.875rem', textAlign: 'center' }}>{error}</p>}
-          <button type="submit" className="practice-button">
-            Sign Up
-          </button>
-          <p style={{ textAlign: 'center', fontSize: '0.875rem', color: '#4b5563' }}>
-            Already have an account? <Link to="/login" style={{ fontWeight: '500', color: '#4f46e5' }}>Login</Link>
-          </p>
+           <input type="email" placeholder="Email Address" required value={email} onChange={(e) => setEmail(e.target.value)} className="auth-input" />
+           <input type="password" placeholder="Password (min. 6 characters)" required value={password} onChange={(e) => setPassword(e.target.value)} className="auth-input" />
+           {error && <p style={{ color: 'var(--error-color)', fontSize: '0.875rem', textAlign: 'center' }}>{error}</p>}
+           <button type="submit" className="practice-button">Sign Up</button>
+           <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+             Already have an account? <Link to="/login" className="auth-link">Login</Link>
+           </p>
         </form>
       </div>
     </div>

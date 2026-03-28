@@ -13,6 +13,7 @@ from transformers import pipeline
 import cloudinary
 import cloudinary.uploader
 import time
+import google.generativeai as genai
 
 # --- SETUP ---
 load_dotenv()
@@ -28,26 +29,32 @@ try:
     )
     print("Cloudinary configured successfully.")
 except Exception as e:
-    print(f"CRITICAL ERROR: Could not configure Cloudinary. Check your .env file. {e}")
+    print(f"CRITICAL ERROR: Could not configure Cloudinary. {e}")
 
-# --- LOCAL AI MODEL LOADING (AT STARTUP) ---
-print("Loading local AI models... (This may take a moment on first run)")
-whisper_model = None
-sentiment_pipeline = None
+gemini_model = None
 try:
-    # Use your powerful GPU for fast transcription
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    if not GOOGLE_API_KEY:
+        raise ValueError("GOOGLE_API_KEY not found in .env file")
+    genai.configure(api_key=GOOGLE_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+    print("Gemini AI model 'gemini-2.5-flash' configured successfully.")
+except Exception as e:
+    print(f"CRITICAL ERROR: Could not configure Gemini AI. {e}")
+
+# --- LOCAL WHISPER MODEL LOADING (AT STARTUP) ---
+print("Loading local Whisper model...")
+whisper_model = None
+try:
     whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
     print("Whisper 'medium' model loaded successfully on GPU.")
-
-    # Load the sentiment model onto the GPU as well (device=0)
-    sentiment_pipeline = pipeline(
-        "sentiment-analysis",
-        model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=0 if torch.cuda.is_available() else -1
-    )
-    print("Sentiment analysis model loaded successfully on GPU.")
 except Exception as e:
-    print(f"CRITICAL ERROR: Could not load local AI models. Make sure CUDA is installed correctly. {e}")
+    print(f"CRITICAL ERROR: Could not load Whisper model. Trying CPU fallback. {e}")
+    try:
+        whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+        print("Whisper 'medium' model loaded successfully on CPU.")
+    except Exception as e2:
+        print(f"CRITICAL ERROR: Failed to load Whisper model on CPU as well. {e2}")
 
 
 # --- HELPER FUNCTIONS ---
@@ -64,51 +71,85 @@ def analyze_pitch(filepath):
         return 0.0
 
 
-def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds):
-    """Uses local sentiment AI and rules for feedback."""
-    confidence_score = 50
-    if sentiment_pipeline:
-        try:
-            result = sentiment_pipeline(transcript)
-            if result[0]['label'] == 'POSITIVE':
-                confidence_score = int(result[0]['score'] * 100)
-            else:
-                confidence_score = int((1 - result[0]['score']) * 50)
-        except Exception as e:
-            print(f"Could not get local AI sentiment analysis: {e}")
+def get_ai_feedback(transcript, wpm, pitch_modulation):
+    """Generates detailed feedback using the Google Gemini API."""
 
-    feedback = "Your practice session has been analyzed."
-    improvements, mistakes = [], []
-
-    if wpm > 170:
-        mistakes.append("Your pace was quite fast. This can be hard for listeners to follow.")
-        improvements.append("Try pausing briefly between key points.")
-    elif wpm < 120 and word_count > 10:
-        mistakes.append("Your pace was a bit slow.")
-        improvements.append("Try speaking with more energy.")
-    else:
-        feedback += " Your speaking pace was excellent."
-
-    if pitch_modulation < 25 and duration_seconds > 4:
-        mistakes.append("Your vocal delivery was a bit monotone.")
-        improvements.append("Practice varying your pitch for emphasis.")
-    else:
-        feedback += " You used great vocal variety."
-
-    filler_words = ['uh', 'um', 'like', 'you know', 'so', 'actually', 'basically']
-    transcript_lower = transcript.lower()
-    found_fillers = [word for word in filler_words if f" {word} " in transcript_lower]
-    if found_fillers:
-        mistakes.append(f"Some filler words like '{', '.join(found_fillers)}' were detected.")
-        improvements.append("Try to pause silently instead of using filler words.")
-
-    if not mistakes: mistakes.append("No major mistakes detected. Great job!")
-    if not improvements: improvements.append("Keep practicing!")
-
-    return {
-        "confidenceScore": confidence_score, "feedback": feedback,
-        "improvements": improvements, "mistakes": mistakes
+    required_keys = {
+        "overallFeedback": "Analysis complete.", "confidenceScore": 50,
+        "pacingAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+        "vocalVarietyAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+        "grammaticalErrors": [],
+        "clarityConciseness": [],
+        "fillerWordAnalysis": [],
+        "pauseAnalysis": [],
+        "keyImprovements": []
     }
+
+    if not gemini_model:
+        return {**required_keys, "overallFeedback": "AI analysis service (Gemini) is unavailable."}
+
+    prompt = f"""
+    Act as an expert, highly detailed, and encouraging speech coach named "Smart Speak".
+    Your task is to analyze the following speech data from a user. Provide specific, actionable feedback with examples.
+
+    Input Data:
+    - Transcript: "{transcript}"
+    - Speaking Pace: {wpm} Words Per Minute (Ideal is ~130-160 WPM)
+    - Pitch Modulation (Std Dev): {pitch_modulation:.2f} (Good is often > 30)
+
+    Your analysis MUST be returned as a single, valid JSON object with NO text before or after it.
+    The JSON object must have the following exact keys:
+
+    {{
+      "overallFeedback": "<string: A concise (2-3 sentences) encouraging summary of the performance, highlighting one key strength and one main area for improvement.>",
+      "confidenceScore": <integer: Score from 0-100 based on fluency, filler words, and pace.>,
+      "pacingAnalysis": {{ "assessment": "<string>", "recommendation": "<string>" }},
+      "vocalVarietyAnalysis": {{ "assessment": "<string>", "recommendation": "<string>" }},
+      "fillerWordAnalysis": [ {{ "word": "<string>", "count": <integer> }} ],
+      "pauseAnalysis": [ {{ "type": "<string>", "context": "<string>" }} ],
+      "grammaticalErrors": [ {{ "error": "<string>", "example": "<string>", "correction": "<string>" }} ],
+      "clarityConciseness": [ {{ "issue": "<string>", "example": "<string>", "suggestion": "<string>" }} ],
+      "keyImprovements": [ {{ "area": "<string>", "action": "<string>" }} ]
+    }}
+    """
+
+    try:
+        response = gemini_model.generate_content(prompt)
+
+        if not response.candidates:
+            block_reason = response.prompt_feedback.block_reason if response.prompt_feedback else "Unknown"
+            print(f"Gemini Error: Response blocked. Reason: {block_reason}")
+            return {**required_keys,
+                    "overallFeedback": f"AI analysis blocked due to safety filters (Reason: {block_reason}). Try rephrasing."}
+
+        if response.candidates[0].finish_reason != 1:  # 1 = "STOP" (successful)
+            finish_reason_details = response.candidates[0].finish_reason
+            print(f"Gemini Error: Generation finished unsuccessfully. Reason: {finish_reason_details}")
+            return {**required_keys,
+                    "overallFeedback": f"AI analysis stopped unexpectedly (Reason: {finish_reason_details})."}
+
+        json_response_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+
+        if not json_response_text:
+            print("Gemini Error: Received empty response text.")
+            return {**required_keys, "overallFeedback": "AI analysis returned an empty response."}
+
+        parsed_json = json.loads(json_response_text)
+
+        for key, default_value in required_keys.items():
+            if key not in parsed_json:
+                print(f"Warning: Gemini response missing key '{key}'. Using default.")
+                parsed_json[key] = default_value
+        return parsed_json
+
+    except json.JSONDecodeError as json_err:
+        print(f"CRITICAL: Failed to parse JSON from Gemini. Error: {json_err}")
+        if 'response' in locals(): print(f"--- RAW AI RESPONSE START ---\n{response.text}\n--- RAW AI RESPONSE END ---")
+        return {**required_keys, "overallFeedback": "Error parsing AI response. Check backend logs."}
+    except Exception as e:
+        google_error = str(e)
+        print(f"CRITICAL: Failed to get feedback from Gemini. Error: {google_error}")
+        return {**required_keys, "overallFeedback": f"Error during AI analysis: {google_error}"}
 
 
 # --- API ROUTES ---
@@ -120,12 +161,13 @@ def health_check():
 @app.route('/analyze', methods=['POST'])
 def analyze_speech():
     if 'audio' not in request.files: return jsonify({'error': 'No audio file found'}), 400
+    if not whisper_model: return jsonify({'error': 'Whisper model not loaded'}), 500
 
     user_id = request.form.get('uid')
     audio_file = request.files['audio']
     uploads_dir = 'uploads'
     if not os.path.exists(uploads_dir): os.makedirs(uploads_dir)
-    filepath = os.path.join(uploads_dir, "temp_recording.wav")
+    filepath = os.path.join(uploads_dir, f"temp_{int(time.time())}.wav")
     audio_file.save(filepath)
 
     audio_url = None
@@ -144,19 +186,33 @@ def analyze_speech():
         word_count = len(transcript.split())
         duration_seconds = len(sound) / 1000.0
 
+        analysis_fallback = {
+            "overallFeedback": 'Recording was too short or silent.', "confidenceScore": 0,
+            "pacingAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+            "vocalVarietyAnalysis": {"assessment": "N/A", "recommendation": "N/A"},
+            "grammaticalErrors": [], "clarityConciseness": [],
+            "fillerWordAnalysis": [], "pauseAnalysis": [], "keyImprovements": []
+        }
+
         if not transcript or word_count < 1:
             return jsonify(
                 {'transcript': "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0, 'duration': duration_seconds,
-                 'audioURL': audio_url, 'confidenceScore': 0, 'feedback': 'Recording was too short.',
-                 'improvements': [], 'mistakes': []})
+                 'audioURL': audio_url, 'analysis': analysis_fallback})
 
         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
         pitch_modulation = analyze_pitch(filepath)
-        analysis = get_feedback(transcript, int(round(wpm)), pitch_modulation, word_count, duration_seconds)
 
-        metrics = {'transcript': transcript, 'wpm': int(round(wpm)),
-                   'pitchModulation': float(round(pitch_modulation, 2)), 'duration': float(round(duration_seconds, 2)),
-                   'audioURL': audio_url, **analysis}
+        print("Getting detailed AI feedback from Gemini...")
+        ai_analysis = get_ai_feedback(transcript, int(round(wpm)), pitch_modulation)
+        print("AI feedback received.")
+
+        metrics = {
+            'transcript': transcript, 'wpm': int(round(wpm)),
+            'pitchModulation': float(round(pitch_modulation, 2)),
+            'duration': float(round(duration_seconds, 2)),
+            'audioURL': audio_url,
+            'analysis': ai_analysis
+        }
 
         return jsonify(metrics)
     except Exception as e:
@@ -168,8 +224,183 @@ def analyze_speech():
 
 
 if __name__ == '__main__':
-    # Use Flask's built-in server for local development
     app.run(host='0.0.0.0', port=5000)
+
+
+
+
+# import os
+# import numpy as np
+# import librosa
+# from faster_whisper import WhisperModel
+# from flask import Flask, request, jsonify
+# from flask_cors import CORS
+# from pydub import AudioSegment
+# import traceback
+# import json
+# from dotenv import load_dotenv
+# import torch
+# from transformers import pipeline
+# import cloudinary
+# import cloudinary.uploader
+# import time
+#
+# # --- SETUP ---
+# load_dotenv()
+# app = Flask(__name__)
+# CORS(app)
+#
+# # --- SERVICE CONFIGURATION ---
+# try:
+#     cloudinary.config(
+#         cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+#         api_key=os.getenv("CLOUDINARY_API_KEY"),
+#         api_secret=os.getenv("CLOUDINARY_API_SECRET")
+#     )
+#     print("Cloudinary configured successfully.")
+# except Exception as e:
+#     print(f"CRITICAL ERROR: Could not configure Cloudinary. Check your .env file. {e}")
+#
+# # --- LOCAL AI MODEL LOADING (AT STARTUP) ---
+# print("Loading local AI models... (This may take a moment on first run)")
+# whisper_model = None
+# sentiment_pipeline = None
+# try:
+#     # Use your powerful GPU for fast transcription
+#     whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
+#     print("Whisper 'medium' model loaded successfully on GPU.")
+#
+#     # Load the sentiment model onto the GPU as well (device=0)
+#     sentiment_pipeline = pipeline(
+#         "sentiment-analysis",
+#         model="distilbert-base-uncased-finetuned-sst-2-english",
+#         device=0 if torch.cuda.is_available() else -1
+#     )
+#     print("Sentiment analysis model loaded successfully on GPU.")
+# except Exception as e:
+#     print(f"CRITICAL ERROR: Could not load local AI models. Make sure CUDA is installed correctly. {e}")
+#
+#
+# # --- HELPER FUNCTIONS ---
+# def analyze_pitch(filepath):
+#     """Analyzes the pitch of an audio file."""
+#     try:
+#         y, sr = librosa.load(filepath, sr=16000)
+#         pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
+#         pitch_values = [p for p in pitches[magnitudes > 0] if p > 0]
+#         if len(pitch_values) > 1: return float(np.std(pitch_values))
+#         return 0.0
+#     except Exception as e:
+#         print(f"Could not analyze pitch: {e}")
+#         return 0.0
+#
+#
+# def get_feedback(transcript, wpm, pitch_modulation, word_count, duration_seconds):
+#     """Uses local sentiment AI and rules for feedback."""
+#     confidence_score = 50
+#     if sentiment_pipeline:
+#         try:
+#             result = sentiment_pipeline(transcript)
+#             if result[0]['label'] == 'POSITIVE':
+#                 confidence_score = int(result[0]['score'] * 100)
+#             else:
+#                 confidence_score = int((1 - result[0]['score']) * 50)
+#         except Exception as e:
+#             print(f"Could not get local AI sentiment analysis: {e}")
+#
+#     feedback = "Your practice session has been analyzed."
+#     improvements, mistakes = [], []
+#
+#     if wpm > 170:
+#         mistakes.append("Your pace was quite fast. This can be hard for listeners to follow.")
+#         improvements.append("Try pausing briefly between key points.")
+#     elif wpm < 120 and word_count > 10:
+#         mistakes.append("Your pace was a bit slow.")
+#         improvements.append("Try speaking with more energy.")
+#     else:
+#         feedback += " Your speaking pace was excellent."
+#
+#     if pitch_modulation < 25 and duration_seconds > 4:
+#         mistakes.append("Your vocal delivery was a bit monotone.")
+#         improvements.append("Practice varying your pitch for emphasis.")
+#     else:
+#         feedback += " You used great vocal variety."
+#
+#     filler_words = ['uh', 'um', 'like', 'you know', 'so', 'actually', 'basically']
+#     transcript_lower = transcript.lower()
+#     found_fillers = [word for word in filler_words if f" {word} " in transcript_lower]
+#     if found_fillers:
+#         mistakes.append(f"Some filler words like '{', '.join(found_fillers)}' were detected.")
+#         improvements.append("Try to pause silently instead of using filler words.")
+#
+#     if not mistakes: mistakes.append("No major mistakes detected. Great job!")
+#     if not improvements: improvements.append("Keep practicing!")
+#
+#     return {
+#         "confidenceScore": confidence_score, "feedback": feedback,
+#         "improvements": improvements, "mistakes": mistakes
+#     }
+#
+#
+# # --- API ROUTES ---
+# @app.route('/')
+# def health_check():
+#     return jsonify({"status": "ok"})
+#
+#
+# @app.route('/analyze', methods=['POST'])
+# def analyze_speech():
+#     if 'audio' not in request.files: return jsonify({'error': 'No audio file found'}), 400
+#
+#     user_id = request.form.get('uid')
+#     audio_file = request.files['audio']
+#     uploads_dir = 'uploads'
+#     if not os.path.exists(uploads_dir): os.makedirs(uploads_dir)
+#     filepath = os.path.join(uploads_dir, "temp_recording.wav")
+#     audio_file.save(filepath)
+#
+#     audio_url = None
+#     try:
+#         sound = AudioSegment.from_file(filepath)
+#         sound = sound.set_channels(1).set_frame_rate(16000)
+#         sound.export(filepath, format="wav")
+#
+#         public_id = f"smart-speak/{user_id}/{int(time.time())}" if user_id else f"smart-speak/guest/{int(time.time())}"
+#         upload_result = cloudinary.uploader.upload(filepath, resource_type="video", public_id=public_id)
+#         audio_url = upload_result.get('secure_url')
+#
+#         segments, info = whisper_model.transcribe(filepath, beam_size=5, language="en", vad_filter=True)
+#         transcript = "".join(segment.text for segment in segments).strip()
+#
+#         word_count = len(transcript.split())
+#         duration_seconds = len(sound) / 1000.0
+#
+#         if not transcript or word_count < 1:
+#             return jsonify(
+#                 {'transcript': "No speech detected.", 'wpm': 0, 'pitchModulation': 0.0, 'duration': duration_seconds,
+#                  'audioURL': audio_url, 'confidenceScore': 0, 'feedback': 'Recording was too short.',
+#                  'improvements': [], 'mistakes': []})
+#
+#         wpm = (word_count / duration_seconds) * 60 if duration_seconds > 0 else 0
+#         pitch_modulation = analyze_pitch(filepath)
+#         analysis = get_feedback(transcript, int(round(wpm)), pitch_modulation, word_count, duration_seconds)
+#
+#         metrics = {'transcript': transcript, 'wpm': int(round(wpm)),
+#                    'pitchModulation': float(round(pitch_modulation, 2)), 'duration': float(round(duration_seconds, 2)),
+#                    'audioURL': audio_url, **analysis}
+#
+#         return jsonify(metrics)
+#     except Exception as e:
+#         print(f"An unexpected error occurred: {traceback.format_exc()}")
+#         return jsonify({'error': 'An internal server error occurred.', 'details': str(e)}), 500
+#     finally:
+#         if os.path.exists(filepath):
+#             os.remove(filepath)
+#
+#
+# if __name__ == '__main__':
+#     # Use Flask's built-in server for local development
+#     app.run(host='0.0.0.0', port=5000)
 
 
 # import os

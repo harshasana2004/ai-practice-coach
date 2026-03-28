@@ -26,7 +26,7 @@ const Header = () => {
           <span className="header-logo-text">Smart Speak</span>
         </div>
         <nav className="header-nav">
-          <NavLink to="/" className={({ isActive }) => (isActive ? "active" : "")}>Practice</NavLink>
+          <NavLink to="/" className={({ isActive }) => (isActive ? "active" : "")}>Dashboard</NavLink>
           <NavLink to="/history" className={({ isActive }) => (isActive ? "active" : "")}>History</NavLink>
         </nav>
         <div className="header-profile">

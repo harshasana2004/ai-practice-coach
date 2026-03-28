@@ -21,7 +21,7 @@ const HistoryPage = () => {
       const userSessions = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        createdAt: doc.data().createdAt.toDate(),
+        createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(),
       }));
       setSessions(userSessions);
       setLoading(false);
@@ -29,47 +29,51 @@ const HistoryPage = () => {
     return () => unsubscribe();
   }, [user]);
 
+  const getConfidenceClass = (score) => {
+    if (score >= 75) return 'confidence-high';
+    if (score >= 50) return 'confidence-medium';
+    return 'confidence-low';
+  };
+
   return (
-    <div className="app-container">
-      <Header />
-      <main className="main-content">
-        <div className="content-wrapper" style={{ maxWidth: '56rem' }}>
-          <div className="page-container">
-            <div className="page-header">
-                <h1 className="title">Session History</h1>
-            </div>
-            <div className="card">
-              <div className="history-list">
-                {loading && <p>Loading history...</p>}
-                {!loading && sessions.length === 0 && (
-                  <p style={{ textAlign: 'center', color: '#6b7280', padding: '1rem 0' }}>
-                    You haven't completed any practice sessions yet.
-                  </p>
-                )}
-                {sessions.map(session => (
-                  <Link to={`/session/${session.id}`} key={session.id}>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <p style={{ fontWeight: '500', color: '#4f46e5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '30rem' }}>
-                          "{session.transcript}"
-                        </p>
-                        <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                          {session.createdAt.toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.875rem' }}>
-                        <span>{session.wpm} WPM</span>
-                        <span>{session.duration.toFixed(1)}s Duration</span>
-                        <span style={{ fontWeight: '600' }}>{session.confidenceScore}% Confidence</span>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </div>
+    <div className="page-container" style={{ maxWidth: '64rem', margin: 'auto' }}>
+      <div className="page-header" style={{textAlign: 'left'}}>
+          <h1 className="title">Session History</h1>
+          <p className="subtitle">Review your past practice sessions and track improvements.</p>
+      </div>
+      <div className="card">
+        <div className="history-list">
+          {loading && <p>Loading history...</p>}
+          {!loading && sessions.length === 0 && (
+            <p style={{ textAlign: 'center', color: '#6b7280', padding: '2rem 0' }}>
+              You haven't completed any practice sessions yet.
+            </p>
+          )}
+          {sessions.map(session => {
+            // --- SAFE DATA ACCESS ---
+            const confidence = session.analysis?.confidenceScore || session.confidenceScore || 0;
+            return (
+              <Link to={`/session/${session.id}`} key={session.id} className="history-list-item">
+                <div className="history-item-left">
+                  <p className="history-item-transcript">"{session.transcript || 'No transcript'}"</p>
+                  <div className="history-item-details">
+                    <span>{session.wpm || 0} WPM</span>
+                    <span>{(session.duration || 0).toFixed(1)}s</span>
+                  </div>
+                </div>
+                <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem'}}>
+                   <span className={`session-card-confidence ${getConfidenceClass(confidence)}`}>
+                      {confidence}% Conf.
+                   </span>
+                   <span className="history-item-date">
+                      {session.createdAt ? session.createdAt.toLocaleDateString() : ''}
+                   </span>
+                 </div>
+              </Link>
+            )
+          })}
         </div>
-      </main>
+      </div>
     </div>
   );
 };

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import Header from '../components/Header';
 import Dashboard from '../components/Dashboard';
 import PracticeModal from '../components/PracticeModal';
 
@@ -22,17 +21,18 @@ const DashboardPage = () => {
       const userSessions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSessions(userSessions);
     }, (error) => {
-      console.error("Error listening to Firestore:", error);
+      console.error("Error listening to Firestore (Check your indexes):", error);
     });
     return () => unsubscribe();
   }, [user]);
 
-  const handleAnalysisComplete = async (newSessionData) => {
+  const handleAnalysisComplete = async (newSessionData, categoryId) => {
     if (!user) return;
     const sessionToSave = {
       ...newSessionData,
       userId: user.uid,
       createdAt: new Date(),
+      categoryId: null, // Category feature removed
     };
     try {
       await addDoc(collection(db, 'sessions'), sessionToSave);
@@ -43,23 +43,18 @@ const DashboardPage = () => {
   };
 
   return (
-    <div className="app-container">
-      <Header />
-      <main className="main-content">
-        <div className="content-wrapper">
-          <Dashboard
-            sessions={sessions}
-            onStartPractice={() => setIsModalOpen(true)}
-          />
-        </div>
-      </main>
+    <>
+      <Dashboard
+        sessions={sessions}
+        onStartPractice={() => setIsModalOpen(true)}
+      />
       {isModalOpen && (
         <PracticeModal
           onClose={() => setIsModalOpen(false)}
           onAnalysisComplete={handleAnalysisComplete}
         />
       )}
-    </div>
+    </>
   );
 };
 export default DashboardPage;

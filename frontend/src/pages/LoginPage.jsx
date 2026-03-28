@@ -43,12 +43,12 @@ const LoginPage = () => {
             onChange={(e) => setPassword(e.target.value)}
             className="auth-input"
           />
-          {error && <p style={{ color: '#ef4444', fontSize: '0.875rem', textAlign: 'center' }}>{error}</p>}
+          {error && <p style={{ color: 'var(--error-color)', fontSize: '0.875rem', textAlign: 'center' }}>{error}</p>}
           <button type="submit" className="practice-button">
             Login
           </button>
-          <p style={{ textAlign: 'center', fontSize: '0.875rem', color: '#4b5563' }}>
-            Don't have an account? <Link to="/signup" style={{ fontWeight: '500', color: '#4f46e5' }}>Sign Up</Link>
+          <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            Don't have an account? <Link to="/signup" className="auth-link">Sign Up</Link>
           </p>
         </form>
       </div>
